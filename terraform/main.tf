@@ -4,6 +4,12 @@ provider "google" {
   project = "gcp-wow-wiq-017-test"
   region  = "us-central1"
 }
+terraform {
+  backend "gcs" {
+    bucket  = "gcp-wow-wiq-017-test-tfstate" 
+    prefix  = "terraform/state"
+  }
+}
 
 # 1. VPC Network
 resource "google_compute_network" "vpc" {
