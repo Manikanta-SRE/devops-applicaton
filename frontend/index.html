@@ -1,1 +1,19 @@
-
+<!DOCTYPE html>
+<html>
+<head><title>GCP 3-Tier App</title></head>
+<body>
+    <h1>Cloud Run Frontend</h1>
+    <div id="status">Connecting to Backend API...</div>
+    <script>
+        // Note: In a production setup, this would point to your Load Balancer or Backend URL
+        fetch('/api/status')
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('status').innerText = "Backend Status: " + data.status;
+            })
+            .catch(err => {
+                document.getElementById('status').innerText = "Error connecting to backend.";
+            });
+    </script>
+</body>
+</html>
