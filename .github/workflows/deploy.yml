@@ -4,7 +4,10 @@ on:
     branches: [ main ]
 
 jobs:
-  build-and-deploy:
+  # ==========================================
+  # JOB 1: CREATE AND SAVE THE TERRAFORM PLAN
+  # ==========================================
+  plan-infrastructure:
     runs-on: ubuntu-latest
     permissions:
       contents: 'read'
@@ -21,6 +24,67 @@ jobs:
           workload_identity_provider: '${{ secrets.WIF_PROVIDER }}'
           service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}'
 
+      - name: 'Setup Terraform'
+        uses: hashicorp/setup-terraform@v3
+
+      - name: 'Terraform Init'
+        run: terraform init
+        working-directory: ./terraform
+
+      - name: 'Terraform Plan'
+        # Notice we use -out=tfplan to save the plan to a file
+        run: terraform plan -var="project_id=${{ secrets.GCP_PROJECT_ID }}" -out=tfplan
+        working-directory: ./terraform
+
+      - name: 'Upload Terraform Plan'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: ./terraform/tfplan
+          retention-days: 1
+
+  # ==========================================
+  # JOB 2: WAIT FOR APPROVAL, THEN DEPLOY
+  # ==========================================
+  apply-and-deploy:
+    needs: plan-infrastructure # This tells GitHub to wait for Job 1 to finish
+    environment: production    # THIS IS THE MAGIC WORD THAT PAUSES FOR APPROVAL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: '${{ secrets.WIF_PROVIDER }}'
+          service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}'
+
+      # --- APPLY INFRASTRUCTURE ---
+      - name: 'Setup Terraform'
+        uses: hashicorp/setup-terraform@v3
+
+      - name: 'Terraform Init'
+        run: terraform init
+        working-directory: ./terraform
+
+      - name: 'Download Terraform Plan'
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ./terraform
+
+      - name: 'Terraform Apply'
+        # We apply the EXACT file we generated in Job 1
+        run: terraform apply tfplan
+        working-directory: ./terraform
+
+      # --- DEPLOY APPLICATION ---
       - name: 'Set up Cloud SDK'
         uses: 'google-github-actions/setup-gcloud@v2'
 
@@ -32,11 +96,11 @@ jobs:
           docker build -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-repo/backend:${{ github.sha }} ./backend
           docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-repo/backend:${{ github.sha }}
 
-      # Notice I've added the VPC connector flag back in here!
       - name: 'Deploy Backend to Cloud Run'
         run: |
           gcloud run deploy backend-api \
             --image us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-repo/backend:${{ github.sha }} \
             --region us-central1 \
             --vpc-connector run-to-db \
-            --allow-unauthenticated
+            --allow-unauthenticated \
+            --set-env-vars DB_HOST=${{ secrets.DB_HOST }},DB_PASSWORD=${{ secrets.DB_PASSWORD }}
