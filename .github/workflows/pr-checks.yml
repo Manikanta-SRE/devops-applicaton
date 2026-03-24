@@ -1,0 +1,61 @@
+name: PR Checks (Test & Plan)
+on:
+  pull_request:
+    branches: [ main ] # Runs ONLY when a PR is made against main
+
+jobs:
+  validate-infrastructure-and-code:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Authenticate to Google Cloud (Needed for Terraform Plan)
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: '${{ secrets.WIF_PROVIDER }}'
+          service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}'
+
+      # --- TERRAFORM CHECKS ---
+      - name: 'Setup Terraform'
+        uses: hashicorp/setup-terraform@v3
+
+      - name: 'Terraform Format Check'
+        run: terraform fmt -check
+        working-directory: ./terraform
+        continue-on-error: true # Highlights messy code without failing the build
+
+      - name: 'Terraform Init'
+        run: terraform init
+        working-directory: ./terraform
+
+      - name: 'Terraform Validate'
+        run: terraform validate
+        working-directory: ./terraform
+
+      - name: 'Terraform Plan (Dry Run)'
+        # This shows what WILL happen if merged, but doesn't actually build anything
+        run: terraform plan -var="project_id=${{ secrets.GCP_PROJECT_ID }}"
+        working-directory: ./terraform
+
+      # --- APPLICATION CHECKS ---
+      - name: 'Set up Python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 'Check Python Syntax'
+        run: |
+          pip install flake8
+          flake8 ./backend --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      # --- DOCKER CHECKS ---
+      - name: 'Test Docker Build'
+        # We build the image to ensure the Dockerfile works, but we DO NOT push it
+        run: docker build -t test-backend ./backend
