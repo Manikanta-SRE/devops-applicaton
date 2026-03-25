@@ -1,4 +1,4 @@
-resource "google_iam_workload_identity_pool" "github_pool" {
+/*resource "google_iam_workload_identity_pool" "github_pool" {
   workload_identity_pool_id = "github-actions-pool"
   display_name              = "GitHub Actions Pool"
 }
@@ -56,4 +56,4 @@ output "workload_identity_provider" {
 
 output "service_account_email" {
   value = google_service_account.github_actions_sa.email
-}
+}*/
